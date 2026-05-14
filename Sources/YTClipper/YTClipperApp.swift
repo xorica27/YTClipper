@@ -8,7 +8,7 @@ struct YTClipperApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 760, minHeight: 560)
+                .frame(minWidth: 820, minHeight: 680)
                 .preferredColorScheme(prefersDarkMode ? .dark : .light)
         }
         .windowResizability(.contentMinSize)
@@ -24,99 +24,156 @@ struct ContentView: View {
     @StateObject private var model = DownloaderViewModel()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            header
-            form
-            controls
-            downloadProgress
-            logView
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+                .ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    header
+                    sourceSection
+
+                    if !model.downloadFullVideo {
+                        clipSection
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
+                    destinationSection
+                    actionSection
+                    helperSection
+                    logView
+                }
+                .padding(24)
+            }
         }
-        .padding(24)
+        .animation(.spring(response: 0.34, dampingFraction: 0.9), value: model.downloadFullVideo)
+        .animation(.easeInOut(duration: 0.2), value: model.isRunning)
         .task {
             await model.refreshToolStatus()
         }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("YTClipper")
-                .font(.system(size: 30, weight: .semibold))
-            Text("Download your own public YouTube video, or save a precise clip range for reuse.")
-                .foregroundStyle(.secondary)
-            Text("Use only with videos you own or have permission to archive. This app does not bypass DRM, paywalls, or private access controls.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+        HStack(alignment: .center, spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.thinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(.white.opacity(0.24))
+                    )
+
+                Image(systemName: "arrow.down.to.line.compact")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.blue)
+            }
+            .frame(width: 52, height: 52)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("YTClipper")
+                    .font(.system(size: 30, weight: .semibold, design: .rounded))
+                Text("Download a full video or save a precise clip from your own YouTube uploads.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Label(model.status, systemImage: model.isRunning ? "bolt.circle.fill" : "checkmark.circle.fill")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(model.isRunning ? .blue : .secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(.thinMaterial, in: Capsule())
         }
     }
 
-    private var form: some View {
-        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
-            GridRow {
-                Text("YouTube URL")
-                    .frame(width: 110, alignment: .trailing)
+    private var sourceSection: some View {
+        glassPanel {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader("Source", systemImage: "link")
+
                 TextField("https://www.youtube.com/watch?v=...", text: $model.videoURL)
                     .textFieldStyle(.roundedBorder)
-            }
+                    .font(.system(.body, design: .rounded))
 
-            GridRow {
-                Text("Mode")
-                    .frame(width: 110, alignment: .trailing)
-                Toggle("Download full video", isOn: $model.downloadFullVideo)
-                    .toggleStyle(.switch)
-                    .disabled(model.isRunning)
-            }
+                HStack(spacing: 14) {
+                    fieldGroup("Mode") {
+                        Picker("Mode", selection: downloadModeBinding) {
+                            ForEach(DownloadMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .disabled(model.isRunning)
+                    }
 
-            GridRow {
-                Text("Resolution")
-                    .frame(width: 110, alignment: .trailing)
-                Picker("Resolution", selection: $model.selectedResolution) {
-                    ForEach(VideoResolution.allCases) { resolution in
-                        Text(resolution.label).tag(resolution)
+                    fieldGroup("Resolution") {
+                        Picker("Resolution", selection: $model.selectedResolution) {
+                            ForEach(VideoResolution.allCases) { resolution in
+                                Text(resolution.label).tag(resolution)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .disabled(model.isRunning)
                     }
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 240, alignment: .leading)
-                .disabled(model.isRunning)
             }
+        }
+    }
 
-            GridRow {
-                Text("Start")
-                    .frame(width: 110, alignment: .trailing)
-                TextField("00:00", text: $model.startTime)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(model.downloadFullVideo || model.isRunning)
-            }
+    private var clipSection: some View {
+        glassPanel {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader("Clip Timing", systemImage: "timeline.selection")
 
-            GridRow {
-                Text("Clip Range")
-                    .frame(width: 110, alignment: .trailing)
-                Picker("Clip Range", selection: $model.clipRangeMode) {
-                    ForEach(ClipRangeMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
+                HStack(spacing: 14) {
+                    fieldGroup("Start") {
+                        TextField("00:00", text: $model.startTime)
+                            .textFieldStyle(.roundedBorder)
+                            .monospacedDigit()
+                            .disabled(model.isRunning)
+                    }
+
+                    fieldGroup("Range") {
+                        Picker("Clip Range", selection: $model.clipRangeMode) {
+                            ForEach(ClipRangeMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .disabled(model.isRunning)
+                    }
+
+                    fieldGroup(model.clipRangeMode.trailingFieldLabel) {
+                        TextField(model.clipRangeMode.trailingFieldPlaceholder, text: $model.duration)
+                            .textFieldStyle(.roundedBorder)
+                            .monospacedDigit()
+                            .disabled(model.isRunning)
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 300, alignment: .leading)
-                .disabled(model.downloadFullVideo || model.isRunning)
             }
+        }
+    }
 
-            GridRow {
-                Text(model.clipRangeMode.trailingFieldLabel)
-                    .frame(width: 110, alignment: .trailing)
-                TextField(model.clipRangeMode.trailingFieldPlaceholder, text: $model.duration)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(model.downloadFullVideo || model.isRunning)
-            }
+    private var destinationSection: some View {
+        glassPanel {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader("Destination", systemImage: "folder")
 
-            GridRow {
-                Text("Save To")
-                    .frame(width: 110, alignment: .trailing)
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     Text(model.outputDirectory.path)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundStyle(.secondary)
+                        .font(.callout)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
                     Button {
                         model.chooseOutputDirectory()
                     } label: {
@@ -125,56 +182,92 @@ struct ContentView: View {
                     .disabled(model.isRunning)
                 }
             }
+        }
+    }
 
-            GridRow {
-                Text("Helpers")
-                    .frame(width: 110, alignment: .trailing)
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(model.ytDlpStatus, systemImage: model.ytDlpPath == nil ? "xmark.circle" : "checkmark.circle")
-                        .foregroundStyle(model.ytDlpPath == nil ? .red : .green)
-                    Label(model.ffmpegStatus, systemImage: model.ffmpegPath == nil ? "xmark.circle" : "checkmark.circle")
-                        .foregroundStyle(model.ffmpegPath == nil ? .red : .green)
-
-                    if model.hasMissingHelpers {
-                        HStack(spacing: 8) {
-                            Button {
-                                model.installMissingHelpers()
-                            } label: {
-                                Label("Install Missing Helpers", systemImage: "terminal")
-                            }
-                            .disabled(model.isRunning)
-
-                            Text("Opens Terminal with Homebrew.")
-                                .foregroundStyle(.secondary)
+    private var actionSection: some View {
+        glassPanel {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    Button {
+                        Task {
+                            await model.download()
                         }
-                        .padding(.top, 4)
+                    } label: {
+                        Label(model.isRunning ? "Working..." : "Download", systemImage: "arrow.down.circle.fill")
+                            .frame(minWidth: 132)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(model.isRunning)
+
+                    Button(role: .destructive) {
+                        model.stopDownload()
+                    } label: {
+                        Label("Stop", systemImage: "stop.circle")
+                    }
+                    .controlSize(.large)
+                    .disabled(!model.isRunning)
+
+                    Spacer()
+
+                    if model.isRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                            .transition(.opacity)
                     }
                 }
-                .font(.callout)
+
+                downloadProgress
             }
         }
     }
 
-    private var controls: some View {
-        HStack(spacing: 12) {
-            Button {
-                Task {
-                    await model.download()
+    private var helperSection: some View {
+        glassPanel {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: model.hasMissingHelpers ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
+                    .font(.title3)
+                    .foregroundStyle(model.hasMissingHelpers ? .orange : .green)
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.hasMissingHelpers ? "Helpers need attention" : "Helpers ready")
+                        .font(.headline)
+
+                    Text(model.hasMissingHelpers ? "YTClipper needs yt-dlp and ffmpeg to download and process videos." : "yt-dlp and ffmpeg are available on this Mac.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label(model.ytDlpStatus, systemImage: model.ytDlpPath == nil ? "xmark.circle" : "checkmark.circle")
+                            .foregroundStyle(model.ytDlpPath == nil ? .red : .secondary)
+                        Label(model.ffmpegStatus, systemImage: model.ffmpegPath == nil ? "xmark.circle" : "checkmark.circle")
+                            .foregroundStyle(model.ffmpegPath == nil ? .red : .secondary)
+                    }
+                    .font(.caption)
                 }
-            } label: {
-                Label(model.isRunning ? "Working..." : "Download", systemImage: "arrow.down.circle.fill")
-                    .frame(minWidth: 120)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(model.isRunning)
 
-            Button(role: .destructive) {
-                model.stopDownload()
-            } label: {
-                Label("Stop", systemImage: "stop.circle")
-            }
-            .disabled(!model.isRunning)
+                Spacer()
 
+                HStack(spacing: 8) {
+                    recheckButton
+
+                    if model.hasMissingHelpers {
+                        Button {
+                            model.installMissingHelpers()
+                        } label: {
+                            Label("Install", systemImage: "terminal")
+                        }
+                        .disabled(model.isRunning)
+                    }
+                }
+            }
+        }
+    }
+
+    private var recheckButton: some View {
+        HStack {
             Button {
                 Task {
                     await model.refreshToolStatus()
@@ -183,17 +276,6 @@ struct ContentView: View {
                 Label("Recheck Helpers", systemImage: "arrow.clockwise")
             }
             .disabled(model.isRunning)
-
-            if model.isRunning {
-                ProgressView()
-                    .controlSize(.small)
-            }
-
-            Spacer()
-
-            Text(model.status)
-                .font(.callout)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -201,12 +283,13 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Progress")
-                    .font(.headline)
+                    .font(.callout.weight(.medium))
                 Spacer()
                 Text(model.progressLabel)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .contentTransition(.numericText())
             }
 
             if let progressFraction = model.progressFraction {
@@ -220,28 +303,83 @@ struct ContentView: View {
     }
 
     private var logView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Output")
-                .font(.headline)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    Text(model.log.isEmpty ? "No output yet." : model.log)
-                        .font(.system(.callout, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(12)
-                        .id("log-bottom")
+        glassPanel {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    sectionHeader("Output Log", systemImage: "terminal")
+                    Spacer()
                 }
-                .background(Color(nsColor: .textBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color(nsColor: .separatorColor))
-                )
-                .onChange(of: model.log) { _ in
-                    proxy.scrollTo("log-bottom", anchor: .bottom)
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Text(model.log.isEmpty ? "No output yet." : model.log)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .padding(12)
+                            .id("log-bottom")
+                    }
+                    .frame(minHeight: 132, maxHeight: 200)
+                    .background(Color(nsColor: .textBackgroundColor).opacity(0.72))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color(nsColor: .separatorColor).opacity(0.6))
+                    )
+                    .onChange(of: model.log) { _ in
+                        proxy.scrollTo("log-bottom", anchor: .bottom)
+                    }
                 }
             }
+        }
+    }
+
+    private var downloadModeBinding: Binding<DownloadMode> {
+        Binding(
+            get: { model.downloadFullVideo ? .full : .clip },
+            set: { model.downloadFullVideo = $0 == .full }
+        )
+    }
+
+    private func glassPanel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.55))
+            )
+            .shadow(color: .black.opacity(0.05), radius: 12, x: 0, y: 8)
+    }
+
+    private func sectionHeader(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.headline)
+            .foregroundStyle(.primary)
+    }
+
+    private func fieldGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+enum DownloadMode: String, CaseIterable, Identifiable {
+    case full
+    case clip
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .full: return "Full Video"
+        case .clip: return "Clip"
         }
     }
 }
