@@ -422,8 +422,8 @@ enum AboutPanelPresenter {
 
         var options: [NSApplication.AboutPanelOptionKey: Any] = [
             .applicationName: "YTClipper",
-            .applicationVersion: "0.1.0",
-            .version: "Build 1",
+            .applicationVersion: "0.3.0",
+            .version: "Build 3",
             .credits: credits
         ]
 
