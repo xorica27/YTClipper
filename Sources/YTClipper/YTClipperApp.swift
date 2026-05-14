@@ -121,6 +121,21 @@ struct ContentView: View {
                         .foregroundStyle(model.ytDlpPath == nil ? .red : .green)
                     Label(model.ffmpegStatus, systemImage: model.ffmpegPath == nil ? "xmark.circle" : "checkmark.circle")
                         .foregroundStyle(model.ffmpegPath == nil ? .red : .green)
+
+                    if model.hasMissingHelpers {
+                        HStack(spacing: 8) {
+                            Button {
+                                model.installMissingHelpers()
+                            } label: {
+                                Label("Install Missing Helpers", systemImage: "terminal")
+                            }
+                            .disabled(model.isRunning)
+
+                            Text("Opens Terminal with Homebrew.")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 4)
+                    }
                 }
                 .font(.callout)
             }
@@ -249,6 +264,21 @@ final class DownloaderViewModel: ObservableObject {
         return "ffmpeg: \(ffmpegPath)"
     }
 
+    var hasMissingHelpers: Bool {
+        !missingHelperPackages.isEmpty
+    }
+
+    private var missingHelperPackages: [String] {
+        var packages: [String] = []
+        if ytDlpPath == nil {
+            packages.append("yt-dlp")
+        }
+        if ffmpegPath == nil {
+            packages.append("ffmpeg")
+        }
+        return packages
+    }
+
     func refreshToolStatus() async {
         ytDlpPath = findExecutable(named: "yt-dlp")
         ffmpegPath = findExecutable(named: "ffmpeg")
@@ -263,6 +293,24 @@ final class DownloaderViewModel: ObservableObject {
 
         if panel.runModal() == .OK, let selectedURL = panel.url {
             outputDirectory = selectedURL
+        }
+    }
+
+    func installMissingHelpers() {
+        let packages = missingHelperPackages
+        guard !packages.isEmpty else {
+            status = "Helpers ready"
+            return
+        }
+
+        do {
+            let scriptURL = try HelperInstallScriptWriter.write(packages: packages)
+            NSWorkspace.shared.open(scriptURL)
+            status = "Installing helpers"
+            appendLog("Opened Terminal to install: \(packages.joined(separator: ", "))\n")
+        } catch {
+            status = "Install script failed"
+            appendLog("Could not create helper install script: \(error.localizedDescription)\n")
         }
     }
 
@@ -422,6 +470,48 @@ final class DownloaderViewModel: ObservableObject {
         } catch {
             return nil
         }
+    }
+}
+
+enum HelperInstallScriptWriter {
+    static func write(packages: [String]) throws -> URL {
+        let safePackages = packages.filter { ["yt-dlp", "ffmpeg"].contains($0) }
+        let installList = safePackages.joined(separator: " ")
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("YTClipper", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+
+        let scriptURL = tempDirectory.appendingPathComponent("install-missing-helpers.command")
+        let script = """
+        #!/bin/zsh
+        set -e
+
+        export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+        echo "YTClipper helper installer"
+        echo "=========================="
+        echo ""
+
+        if ! command -v brew >/dev/null 2>&1; then
+          echo "Homebrew is required before YTClipper can install helpers automatically."
+          echo "Opening https://brew.sh now."
+          open "https://brew.sh"
+          echo ""
+          read -k "?Press any key to close this window..."
+          exit 1
+        fi
+
+        echo "Installing: \(installList)"
+        echo ""
+        brew install \(installList)
+        echo ""
+        echo "Done. Return to YTClipper and click Recheck."
+        read -k "?Press any key to close this window..."
+        """
+
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+        return scriptURL
     }
 }
 

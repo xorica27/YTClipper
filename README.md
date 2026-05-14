@@ -17,6 +17,7 @@ It does not bypass DRM, paywalls, or private access controls.
 - Stop an active download from inside the app
 - Toggle between light and dark mode
 - Choose the output folder
+- Open a one-click Terminal installer when `yt-dlp` or `ffmpeg` is missing
 
 ## Install Helpers
 
