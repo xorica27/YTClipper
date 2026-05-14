@@ -95,6 +95,7 @@ struct ContentView: View {
                         Text(mode.label).tag(mode)
                     }
                 }
+                .labelsHidden()
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 300, alignment: .leading)
                 .disabled(model.downloadFullVideo || model.isRunning)
@@ -179,7 +180,7 @@ struct ContentView: View {
                     await model.refreshToolStatus()
                 }
             } label: {
-                Label("Recheck", systemImage: "arrow.clockwise")
+                Label("Recheck Helpers", systemImage: "arrow.clockwise")
             }
             .disabled(model.isRunning)
 
