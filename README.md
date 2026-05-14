@@ -9,6 +9,13 @@ The app shells out to:
 
 It does not bypass DRM, paywalls, or private access controls.
 
+## Features
+
+- Download the full video or a selected clip duration
+- Select a max video resolution, from 360p through 4K
+- Stop an active download from inside the app
+- Choose the output folder
+
 ## Install Helpers
 
 ```sh

@@ -54,6 +54,20 @@ struct ContentView: View {
                     .frame(width: 110, alignment: .trailing)
                 Toggle("Download full video", isOn: $model.downloadFullVideo)
                     .toggleStyle(.switch)
+                    .disabled(model.isRunning)
+            }
+
+            GridRow {
+                Text("Resolution")
+                    .frame(width: 110, alignment: .trailing)
+                Picker("Resolution", selection: $model.selectedResolution) {
+                    ForEach(VideoResolution.allCases) { resolution in
+                        Text(resolution.label).tag(resolution)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 240, alignment: .leading)
+                .disabled(model.isRunning)
             }
 
             GridRow {
@@ -61,7 +75,7 @@ struct ContentView: View {
                     .frame(width: 110, alignment: .trailing)
                 TextField("00:00", text: $model.startTime)
                     .textFieldStyle(.roundedBorder)
-                    .disabled(model.downloadFullVideo)
+                    .disabled(model.downloadFullVideo || model.isRunning)
             }
 
             GridRow {
@@ -69,7 +83,7 @@ struct ContentView: View {
                     .frame(width: 110, alignment: .trailing)
                 TextField("00:30", text: $model.duration)
                     .textFieldStyle(.roundedBorder)
-                    .disabled(model.downloadFullVideo)
+                    .disabled(model.downloadFullVideo || model.isRunning)
             }
 
             GridRow {
@@ -85,6 +99,7 @@ struct ContentView: View {
                     } label: {
                         Label("Choose", systemImage: "folder")
                     }
+                    .disabled(model.isRunning)
                 }
             }
 
@@ -114,6 +129,13 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(model.isRunning)
+
+            Button(role: .destructive) {
+                model.stopDownload()
+            } label: {
+                Label("Stop", systemImage: "stop.circle")
+            }
+            .disabled(!model.isRunning)
 
             Button {
                 Task {
@@ -170,12 +192,14 @@ final class DownloaderViewModel: ObservableObject {
     @Published var downloadFullVideo = false
     @Published var startTime = "00:00"
     @Published var duration = "00:30"
+    @Published var selectedResolution: VideoResolution = .best
     @Published var outputDirectory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSHomeDirectory())
     @Published var log = ""
     @Published var status = "Ready"
     @Published var isRunning = false
     @Published var ytDlpPath: String?
     @Published var ffmpegPath: String?
+    private var activeProcess: ProcessController?
 
     var ytDlpStatus: String {
         guard let ytDlpPath else {
@@ -237,7 +261,7 @@ final class DownloaderViewModel: ObservableObject {
             "--newline",
             "--no-playlist",
             "--ffmpeg-location", ffmpegPath,
-            "-f", "bv*+ba/best",
+            "-f", selectedResolution.formatSelector,
             "--merge-output-format", "mp4",
             "-P", outputDirectory.path,
             "-o", "%(title).80s-%(id)s.%(ext)s"
@@ -266,22 +290,36 @@ final class DownloaderViewModel: ObservableObject {
         status = downloadFullVideo ? "Downloading full video" : "Downloading clip"
         appendLog("$ \(ytDlpPath) \(args.joined(separator: " "))\n")
 
-        let result = await ProcessRunner.run(executable: ytDlpPath, arguments: args) { [weak self] chunk in
+        let processController = ProcessController()
+        activeProcess = processController
+
+        let result = await ProcessRunner.run(executable: ytDlpPath, arguments: args, controller: processController) { [weak self] chunk in
             Task { @MainActor in
                 self?.appendLog(chunk)
             }
         }
 
         isRunning = false
+        activeProcess = nil
 
         switch result {
         case .success:
             status = "Done"
             appendLog("\nDone. Saved to: \(outputDirectory.path)\n")
+        case .cancelled:
+            status = "Stopped"
+            appendLog("\nStopped by user.\n")
         case .failure(let message):
             status = "Failed"
             appendLog("\nFailed:\n\(message)\n")
         }
+    }
+
+    func stopDownload() {
+        guard isRunning else { return }
+        status = "Stopping"
+        activeProcess?.cancel()
+        appendLog("\nStopping download...\n")
     }
 
     private func appendLog(_ text: String) {
@@ -319,6 +357,49 @@ final class DownloaderViewModel: ObservableObject {
             return path?.isEmpty == false ? path : nil
         } catch {
             return nil
+        }
+    }
+}
+
+enum VideoResolution: String, CaseIterable, Identifiable {
+    case best
+    case p2160
+    case p1440
+    case p1080
+    case p720
+    case p480
+    case p360
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .best: return "Best available"
+        case .p2160: return "Up to 2160p / 4K"
+        case .p1440: return "Up to 1440p / 2K"
+        case .p1080: return "Up to 1080p"
+        case .p720: return "Up to 720p"
+        case .p480: return "Up to 480p"
+        case .p360: return "Up to 360p"
+        }
+    }
+
+    var formatSelector: String {
+        switch self {
+        case .best:
+            return "bv*+ba/best"
+        case .p2160:
+            return "bv*[height<=2160]+ba/b[height<=2160]/best[height<=2160]"
+        case .p1440:
+            return "bv*[height<=1440]+ba/b[height<=1440]/best[height<=1440]"
+        case .p1080:
+            return "bv*[height<=1080]+ba/b[height<=1080]/best[height<=1080]"
+        case .p720:
+            return "bv*[height<=720]+ba/b[height<=720]/best[height<=720]"
+        case .p480:
+            return "bv*[height<=480]+ba/b[height<=480]/best[height<=480]"
+        case .p360:
+            return "bv*[height<=360]+ba/b[height<=360]/best[height<=360]"
         }
     }
 }
@@ -367,7 +448,34 @@ enum TimecodeParser {
 
 enum ProcessRunResult {
     case success
+    case cancelled
     case failure(String)
+}
+
+final class ProcessController: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var cancelled = false
+
+    func attach(_ process: Process) {
+        lock.withLock {
+            self.process = process
+            if cancelled {
+                process.terminate()
+            }
+        }
+    }
+
+    func cancel() {
+        lock.withLock {
+            cancelled = true
+            process?.terminate()
+        }
+    }
+
+    var isCancelled: Bool {
+        lock.withLock { cancelled }
+    }
 }
 
 final class LockedTextBuffer: @unchecked Sendable {
@@ -397,12 +505,14 @@ enum ProcessRunner {
     static func run(
         executable: String,
         arguments: [String],
+        controller: ProcessController,
         onOutput: @escaping (String) -> Void
     ) async -> ProcessRunResult {
         await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = arguments
+            controller.attach(process)
 
             let outputPipe = Pipe()
             let errorPipe = Pipe()
@@ -428,7 +538,9 @@ enum ProcessRunner {
                 outputPipe.fileHandleForReading.readabilityHandler = nil
                 errorPipe.fileHandleForReading.readabilityHandler = nil
 
-                if finishedProcess.terminationStatus == 0 {
+                if controller.isCancelled {
+                    continuation.resume(returning: .cancelled)
+                } else if finishedProcess.terminationStatus == 0 {
                     continuation.resume(returning: .success)
                 } else {
                     let message = errorOutput.text
