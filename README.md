@@ -13,7 +13,9 @@ It does not bypass DRM, paywalls, or private access controls.
 
 - Download the full video or a selected clip duration
 - Select a max video resolution, from 360p through 4K
+- Track active download progress with a progress bar
 - Stop an active download from inside the app
+- Toggle between light and dark mode
 - Choose the output folder
 
 ## Install Helpers

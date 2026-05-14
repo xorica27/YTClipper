@@ -14,15 +14,18 @@ struct YTClipperApp: App {
 
 struct ContentView: View {
     @StateObject private var model = DownloaderViewModel()
+    @AppStorage("prefersDarkMode") private var prefersDarkMode = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             header
             form
             controls
+            downloadProgress
             logView
         }
         .padding(24)
+        .preferredColorScheme(prefersDarkMode ? .dark : .light)
         .task {
             await model.refreshToolStatus()
         }
@@ -68,6 +71,13 @@ struct ContentView: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: 240, alignment: .leading)
                 .disabled(model.isRunning)
+            }
+
+            GridRow {
+                Text("Appearance")
+                    .frame(width: 110, alignment: .trailing)
+                Toggle("Dark mode", isOn: $prefersDarkMode)
+                    .toggleStyle(.switch)
             }
 
             GridRow {
@@ -159,6 +169,28 @@ struct ContentView: View {
         }
     }
 
+    private var downloadProgress: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Progress")
+                    .font(.headline)
+                Spacer()
+                Text(model.progressLabel)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
+            if let progressFraction = model.progressFraction {
+                ProgressView(value: progressFraction, total: 1)
+                    .progressViewStyle(.linear)
+            } else {
+                ProgressView(value: model.isRunning ? nil : 0, total: 1)
+                    .progressViewStyle(.linear)
+            }
+        }
+    }
+
     private var logView: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Output")
@@ -197,6 +229,8 @@ final class DownloaderViewModel: ObservableObject {
     @Published var log = ""
     @Published var status = "Ready"
     @Published var isRunning = false
+    @Published var progressFraction: Double?
+    @Published var progressLabel = "Idle"
     @Published var ytDlpPath: String?
     @Published var ffmpegPath: String?
     private var activeProcess: ProcessController?
@@ -236,16 +270,20 @@ final class DownloaderViewModel: ObservableObject {
         await refreshToolStatus()
         log = ""
         status = "Validating"
+        progressFraction = nil
+        progressLabel = "Preparing"
 
         guard let ytDlpPath else {
             appendLog("Missing yt-dlp.\nInstall it with:\n  brew install yt-dlp")
             status = "Missing yt-dlp"
+            progressLabel = "Missing yt-dlp"
             return
         }
 
         guard let ffmpegPath else {
             appendLog("Missing ffmpeg.\nInstall it with:\n  brew install ffmpeg")
             status = "Missing ffmpeg"
+            progressLabel = "Missing ffmpeg"
             return
         }
 
@@ -254,6 +292,7 @@ final class DownloaderViewModel: ObservableObject {
               host.contains("youtube.com") || host.contains("youtu.be") else {
             appendLog("Enter a valid YouTube URL.")
             status = "Invalid URL"
+            progressLabel = "Invalid URL"
             return
         }
 
@@ -273,6 +312,7 @@ final class DownloaderViewModel: ObservableObject {
                   durationSeconds > 0 else {
                 appendLog("Clip start and duration must be valid. Use SS, MM:SS, or HH:MM:SS.")
                 status = "Invalid clip time"
+                progressLabel = "Invalid clip time"
                 return
             }
 
@@ -288,6 +328,7 @@ final class DownloaderViewModel: ObservableObject {
 
         isRunning = true
         status = downloadFullVideo ? "Downloading full video" : "Downloading clip"
+        progressLabel = "Starting"
         appendLog("$ \(ytDlpPath) \(args.joined(separator: " "))\n")
 
         let processController = ProcessController()
@@ -295,7 +336,7 @@ final class DownloaderViewModel: ObservableObject {
 
         let result = await ProcessRunner.run(executable: ytDlpPath, arguments: args, controller: processController) { [weak self] chunk in
             Task { @MainActor in
-                self?.appendLog(chunk)
+                self?.handleProcessOutput(chunk)
             }
         }
 
@@ -305,12 +346,16 @@ final class DownloaderViewModel: ObservableObject {
         switch result {
         case .success:
             status = "Done"
+            progressFraction = 1
+            progressLabel = "100%"
             appendLog("\nDone. Saved to: \(outputDirectory.path)\n")
         case .cancelled:
             status = "Stopped"
+            progressLabel = "Stopped"
             appendLog("\nStopped by user.\n")
         case .failure(let message):
             status = "Failed"
+            progressLabel = "Failed"
             appendLog("\nFailed:\n\(message)\n")
         }
     }
@@ -318,8 +363,27 @@ final class DownloaderViewModel: ObservableObject {
     func stopDownload() {
         guard isRunning else { return }
         status = "Stopping"
+        progressLabel = "Stopping"
         activeProcess?.cancel()
         appendLog("\nStopping download...\n")
+    }
+
+    private func handleProcessOutput(_ text: String) {
+        appendLog(text)
+
+        guard let progress = DownloadProgressParser.parse(text) else {
+            if text.contains("[Merger]") || text.contains("Merging formats") {
+                progressLabel = "Merging"
+            } else if text.contains("[ExtractAudio]") || text.contains("[VideoRemuxer]") {
+                progressLabel = "Processing"
+            } else if text.contains("[info]") || text.contains("[youtube]") {
+                progressLabel = "Preparing"
+            }
+            return
+        }
+
+        progressFraction = progress.fraction
+        progressLabel = progress.label
     }
 
     private func appendLog(_ text: String) {
@@ -358,6 +422,30 @@ final class DownloaderViewModel: ObservableObject {
         } catch {
             return nil
         }
+    }
+}
+
+struct DownloadProgress {
+    let fraction: Double
+    let label: String
+}
+
+enum DownloadProgressParser {
+    static func parse(_ text: String) -> DownloadProgress? {
+        let pattern = #"\[download\]\s+([0-9]+(?:\.[0-9]+)?)%"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.matches(in: text, range: range).last,
+              let percentRange = Range(match.range(at: 1), in: text),
+              let percent = Double(text[percentRange]) else {
+            return nil
+        }
+
+        let clampedPercent = min(max(percent, 0), 100)
+        return DownloadProgress(
+            fraction: clampedPercent / 100,
+            label: String(format: "%.1f%%", clampedPercent)
+        )
     }
 }
 
