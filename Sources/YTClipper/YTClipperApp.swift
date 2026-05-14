@@ -3,18 +3,25 @@ import AppKit
 
 @main
 struct YTClipperApp: App {
+    @AppStorage("prefersDarkMode") private var prefersDarkMode = false
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .frame(minWidth: 760, minHeight: 560)
+                .preferredColorScheme(prefersDarkMode ? .dark : .light)
         }
         .windowResizability(.contentMinSize)
+
+        Settings {
+            SettingsView()
+                .preferredColorScheme(prefersDarkMode ? .dark : .light)
+        }
     }
 }
 
 struct ContentView: View {
     @StateObject private var model = DownloaderViewModel()
-    @AppStorage("prefersDarkMode") private var prefersDarkMode = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -25,7 +32,6 @@ struct ContentView: View {
             logView
         }
         .padding(24)
-        .preferredColorScheme(prefersDarkMode ? .dark : .light)
         .task {
             await model.refreshToolStatus()
         }
@@ -71,13 +77,6 @@ struct ContentView: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: 240, alignment: .leading)
                 .disabled(model.isRunning)
-            }
-
-            GridRow {
-                Text("Appearance")
-                    .frame(width: 110, alignment: .trailing)
-                Toggle("Dark mode", isOn: $prefersDarkMode)
-                    .toggleStyle(.switch)
             }
 
             GridRow {
@@ -230,6 +229,22 @@ struct ContentView: View {
                 }
             }
         }
+    }
+}
+
+struct SettingsView: View {
+    @AppStorage("prefersDarkMode") private var prefersDarkMode = false
+
+    var body: some View {
+        Form {
+            Section("Appearance") {
+                Toggle("Dark mode", isOn: $prefersDarkMode)
+                    .toggleStyle(.switch)
+            }
+        }
+        .formStyle(.grouped)
+        .padding(20)
+        .frame(width: 420)
     }
 }
 

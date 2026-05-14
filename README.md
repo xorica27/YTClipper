@@ -15,7 +15,7 @@ It does not bypass DRM, paywalls, or private access controls.
 - Select a max video resolution, from 360p through 4K
 - Track active download progress with a progress bar
 - Stop an active download from inside the app
-- Toggle between light and dark mode
+- Toggle between light and dark mode from `YTClipper > Settings...`
 - Choose the output folder
 - Open a one-click Terminal installer when `yt-dlp` or `ffmpeg` is missing
 
