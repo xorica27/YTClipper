@@ -8,7 +8,7 @@ struct YTClipperApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 820, minHeight: 680)
+                .frame(minWidth: 820, minHeight: 730)
                 .preferredColorScheme(prefersDarkMode ? .dark : .light)
         }
         .windowResizability(.contentMinSize)
@@ -29,6 +29,7 @@ struct YTClipperApp: App {
 
 struct ContentView: View {
     @StateObject private var model = DownloaderViewModel()
+    private let logViewportHeight: CGFloat = 180
 
     var body: some View {
         ZStack {
@@ -50,7 +51,10 @@ struct ContentView: View {
                     helperSection
                     logView
                 }
-                .padding(24)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 36)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.9), value: model.downloadFullVideo)
@@ -124,13 +128,6 @@ struct ContentView: View {
                 sectionHeader("Clip Timing", systemImage: "timeline.selection")
 
                 HStack(spacing: 14) {
-                    fieldGroup("Start") {
-                        TextField("00:00", text: $model.startTime)
-                            .textFieldStyle(.roundedBorder)
-                            .monospacedDigit()
-                            .disabled(model.isRunning)
-                    }
-
                     fieldGroup("Range") {
                         Picker("Clip Range", selection: $model.clipRangeMode) {
                             ForEach(ClipRangeMode.allCases) { mode in
@@ -140,6 +137,13 @@ struct ContentView: View {
                         .labelsHidden()
                         .pickerStyle(.segmented)
                         .disabled(model.isRunning)
+                    }
+
+                    fieldGroup("Clip Timestamp") {
+                        TextField("00:00", text: $model.startTime)
+                            .textFieldStyle(.roundedBorder)
+                            .monospacedDigit()
+                            .disabled(model.isRunning)
                     }
 
                     fieldGroup(model.clipRangeMode.trailingFieldLabel) {
@@ -306,15 +310,19 @@ struct ContentView: View {
                 }
 
                 ScrollViewReader { proxy in
-                    ScrollView {
-                        Text(model.log.isEmpty ? "No output yet." : model.log)
-                            .font(.system(.caption, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                            .padding(12)
-                            .id("log-bottom")
+                    GeometryReader { geometry in
+                        ScrollView(.vertical) {
+                            Text(model.log.isEmpty ? "No output yet." : model.log)
+                                .font(.system(.caption, design: .monospaced))
+                                .lineLimit(nil)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(width: max(0, geometry.size.width - 24), alignment: .leading)
+                                .textSelection(.enabled)
+                                .padding(12)
+                                .id("log-bottom")
+                        }
                     }
-                    .frame(minHeight: 132, maxHeight: 200)
+                    .frame(height: logViewportHeight)
                     .background(Color(nsColor: .textBackgroundColor).opacity(0.72))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(
@@ -399,39 +407,137 @@ enum AppIconLoader {
     }
 }
 
+struct AboutView: View {
+    var body: some View {
+        VStack(spacing: 22) {
+            AppIconMark(size: 88)
+                .padding(.top, 6)
+
+            VStack(spacing: 6) {
+                Text("YTClipper")
+                    .font(.system(size: 30, weight: .semibold, design: .rounded))
+
+                Text("Version 0.1.0")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Save full videos or precise clips from YT content you own or have permission to archive.")
+                .font(.body)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 340)
+
+            Divider()
+                .padding(.horizontal, 20)
+
+            VStack(alignment: .leading, spacing: 12) {
+                AboutInfoRow(
+                    systemImage: "lock.shield",
+                    title: "Private by default",
+                    message: "Downloads stay on your Mac and run through local helper tools."
+                )
+
+                AboutInfoRow(
+                    systemImage: "checkmark.seal",
+                    title: "Use responsibly",
+                    message: "Designed for YT content you own or have permission to save."
+                )
+            }
+            .frame(maxWidth: 360)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 34)
+        .padding(.vertical, 28)
+        .frame(width: 460, height: 430)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+struct AboutInfoRow: View {
+    let systemImage: String
+    let title: String
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.red)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+@MainActor
 enum AboutPanelPresenter {
+    private static var panel: NSPanel?
+
     static func show() {
-        let description = """
-        YTClipper helps you save full videos or precise clip ranges from YT content you own or have permission to archive.
-
-        The app uses local helper tools, keeps downloads on your Mac, and does not bypass DRM, paywalls, private access controls, or platform restrictions.
-        """
-
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.alignment = .center
-        paragraphStyle.lineSpacing = 3
-
-        let credits = NSAttributedString(
-            string: description,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 12),
-                .foregroundColor: NSColor.secondaryLabelColor,
-                .paragraphStyle: paragraphStyle
-            ]
-        )
-
-        var options: [NSApplication.AboutPanelOptionKey: Any] = [
-            .applicationName: "YTClipper",
-            .applicationVersion: "0.1.0",
-            .version: "Build 1",
-            .credits: credits
-        ]
-
-        if let icon = AppIconLoader.image() {
-            options[.applicationIcon] = icon
+        if let panel {
+            position(panel)
+            panel.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
         }
 
-        NSApplication.shared.orderFrontStandardAboutPanel(options: options)
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 430),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+
+        panel.title = "About YTClipper"
+        panel.contentViewController = NSHostingController(rootView: AboutView())
+        panel.isReleasedWhenClosed = false
+        position(panel)
+        panel.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        Self.panel = panel
+    }
+
+    private static func position(_ panel: NSPanel) {
+        let appWindow = NSApplication.shared.windows.first { window in
+            window !== panel && window.isVisible && !window.isMiniaturized
+        }
+
+        let targetFrame = appWindow?.frame ?? screenUnderPointer()?.visibleFrame ?? NSScreen.main?.visibleFrame
+        guard let targetFrame else {
+            panel.center()
+            return
+        }
+
+        var origin = NSPoint(
+            x: targetFrame.midX - panel.frame.width / 2,
+            y: targetFrame.midY - panel.frame.height / 2
+        )
+
+        if let visibleFrame = appWindow?.screen?.visibleFrame ?? screenUnderPointer()?.visibleFrame ?? NSScreen.main?.visibleFrame {
+            origin.x = min(max(origin.x, visibleFrame.minX), visibleFrame.maxX - panel.frame.width)
+            origin.y = min(max(origin.y, visibleFrame.minY), visibleFrame.maxY - panel.frame.height)
+        }
+
+        panel.setFrameOrigin(origin)
+    }
+
+    private static func screenUnderPointer() -> NSScreen? {
+        let pointer = NSEvent.mouseLocation
+        return NSScreen.screens.first { screen in
+            screen.frame.contains(pointer)
+        }
     }
 }
 
@@ -667,7 +773,7 @@ final class DownloaderViewModel: ObservableObject {
     }
 
     private func appendLog(_ text: String) {
-        log += text
+        log += text.replacingOccurrences(of: "\r", with: "\n")
     }
 
     private func findExecutable(named name: String) -> String? {
@@ -762,8 +868,8 @@ enum ClipRangeMode: String, CaseIterable, Identifiable {
 
     var trailingFieldLabel: String {
         switch self {
-        case .duration: return "Duration"
-        case .endTime: return "End"
+        case .duration: return "Clip Duration"
+        case .endTime: return "Clip Timestamp"
         }
     }
 

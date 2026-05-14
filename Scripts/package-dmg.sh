@@ -64,8 +64,8 @@ tell application "Finder"
     set icon size of viewOptions to 112
     set background picture of viewOptions to file ".background:$BACKGROUND_NAME"
 
-    set position of item "$APP_NAME.app" of container window to {190, 218}
-    set position of item "Applications" of container window to {500, 218}
+    set position of item "$APP_NAME.app" of container window to {190, 198}
+    set position of item "Applications" of container window to {500, 198}
 
     update without registering applications
     set bounds of container window to {140, 140, 820, 560}
