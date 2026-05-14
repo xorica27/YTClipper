@@ -88,9 +88,22 @@ struct ContentView: View {
             }
 
             GridRow {
-                Text("Duration")
+                Text("Clip Range")
                     .frame(width: 110, alignment: .trailing)
-                TextField("00:30", text: $model.duration)
+                Picker("Clip Range", selection: $model.clipRangeMode) {
+                    ForEach(ClipRangeMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 300, alignment: .leading)
+                .disabled(model.downloadFullVideo || model.isRunning)
+            }
+
+            GridRow {
+                Text(model.clipRangeMode.trailingFieldLabel)
+                    .frame(width: 110, alignment: .trailing)
+                TextField(model.clipRangeMode.trailingFieldPlaceholder, text: $model.duration)
                     .textFieldStyle(.roundedBorder)
                     .disabled(model.downloadFullVideo || model.isRunning)
             }
@@ -254,6 +267,7 @@ final class DownloaderViewModel: ObservableObject {
     @Published var downloadFullVideo = false
     @Published var startTime = "00:00"
     @Published var duration = "00:30"
+    @Published var clipRangeMode: ClipRangeMode = .duration
     @Published var selectedResolution: VideoResolution = .best
     @Published var outputDirectory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSHomeDirectory())
     @Published var log = ""
@@ -371,15 +385,14 @@ final class DownloaderViewModel: ObservableObject {
 
         if !downloadFullVideo {
             guard let startSeconds = TimecodeParser.seconds(from: startTime),
-                  let durationSeconds = TimecodeParser.seconds(from: duration),
-                  durationSeconds > 0 else {
-                appendLog("Clip start and duration must be valid. Use SS, MM:SS, or HH:MM:SS.")
+                  let endSeconds = clipRangeMode.endSeconds(startSeconds: startSeconds, trailingValue: duration),
+                  endSeconds > startSeconds else {
+                appendLog("Clip range must be valid. Use SS, MM:SS, or HH:MM:SS, and make sure the end is after the start.\n")
                 status = "Invalid clip time"
                 progressLabel = "Invalid clip time"
                 return
             }
 
-            let endSeconds = startSeconds + durationSeconds
             let section = "*\(TimecodeParser.string(from: startSeconds))-\(TimecodeParser.string(from: endSeconds))"
             args += [
                 "--download-sections", section,
@@ -527,6 +540,45 @@ enum HelperInstallScriptWriter {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
         return scriptURL
+    }
+}
+
+enum ClipRangeMode: String, CaseIterable, Identifiable {
+    case duration
+    case endTime
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .duration: return "Duration"
+        case .endTime: return "End Time"
+        }
+    }
+
+    var trailingFieldLabel: String {
+        switch self {
+        case .duration: return "Duration"
+        case .endTime: return "End"
+        }
+    }
+
+    var trailingFieldPlaceholder: String {
+        switch self {
+        case .duration: return "00:30"
+        case .endTime: return "01:45"
+        }
+    }
+
+    func endSeconds(startSeconds: Int, trailingValue: String) -> Int? {
+        guard let value = TimecodeParser.seconds(from: trailingValue) else { return nil }
+
+        switch self {
+        case .duration:
+            return startSeconds + value
+        case .endTime:
+            return value
+        }
     }
 }
 

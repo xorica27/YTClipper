@@ -50,4 +50,10 @@ Examples:
 
 - Start: `01:15`
 - Duration: `00:30`
+- End time: `01:45`
 - Full video: enable `Download full video`
+
+Clip range modes:
+
+- `Duration`: downloads from `Start` for the entered duration
+- `End Time`: downloads from `Start` until the entered end time
