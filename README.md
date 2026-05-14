@@ -1,5 +1,9 @@
 # YTClipper
 
+<p align="center">
+  <img src="Resources/YTClipperIcon.png" alt="YTClipper app icon" width="128">
+</p>
+
 YTClipper is a simple Mac app for saving full YT videos or precise clip ranges from content you own or have permission to archive.
 
 It is built for quick personal workflows: paste a link, choose full video or clip, pick a resolution, and save the result to your Mac.
@@ -16,7 +20,9 @@ It is built for quick personal workflows: paste a link, choose full video or cli
 
 ## Getting Started
 
-Open `YTClipper.app`, paste a YT video link, then choose either:
+Download the latest DMG from Releases, open it, then drag `YTClipper.app` into `Applications`.
+
+Open YTClipper, paste a YT video link, then choose either:
 
 - `Full Video` to save the whole video
 - `Clip` to save only part of the video
