@@ -1,6 +1,6 @@
 # YTClipper
 
-A small macOS SwiftUI utility for downloading a full YouTube video, or clipping a time range from a YouTube video you own or have permission to archive.
+A small macOS SwiftUI utility for downloading a full YT video, or clipping a time range from a YT video you own or have permission to archive.
 
 The app shells out to:
 

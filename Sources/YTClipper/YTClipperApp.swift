@@ -12,6 +12,13 @@ struct YTClipperApp: App {
                 .preferredColorScheme(prefersDarkMode ? .dark : .light)
         }
         .windowResizability(.contentMinSize)
+        .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About YTClipper") {
+                    AboutPanelPresenter.show()
+                }
+            }
+        }
 
         Settings {
             SettingsView()
@@ -55,24 +62,12 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(.thinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(.white.opacity(0.24))
-                    )
-
-                Image(systemName: "arrow.down.to.line.compact")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(.blue)
-            }
-            .frame(width: 52, height: 52)
+            AppIconMark(size: 52)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("YTClipper")
                     .font(.system(size: 30, weight: .semibold, design: .rounded))
-                Text("Download a full video or save a precise clip from your own YouTube uploads.")
+                Text("Download a full video or save a precise clip from your own YT uploads.")
                     .foregroundStyle(.secondary)
             }
 
@@ -92,7 +87,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 14) {
                 sectionHeader("Source", systemImage: "link")
 
-                TextField("https://www.youtube.com/watch?v=...", text: $model.videoURL)
+                TextField("Paste a YT video URL", text: $model.videoURL)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .rounded))
 
@@ -370,6 +365,76 @@ struct ContentView: View {
     }
 }
 
+struct AppIconMark: View {
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let image = AppIconLoader.image() {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.thinMaterial)
+                    .overlay(
+                        Image(systemName: "arrow.down.to.line.compact")
+                            .font(.system(size: size * 0.46, weight: .semibold))
+                            .foregroundStyle(.blue)
+                    )
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)
+    }
+}
+
+enum AppIconLoader {
+    static func image() -> NSImage? {
+        guard let url = Bundle.main.url(forResource: "YTClipperIcon", withExtension: "png") else {
+            return nil
+        }
+        return NSImage(contentsOf: url)
+    }
+}
+
+enum AboutPanelPresenter {
+    static func show() {
+        let description = """
+        YTClipper helps you save full videos or precise clip ranges from YT content you own or have permission to archive.
+
+        The app uses local helper tools, keeps downloads on your Mac, and does not bypass DRM, paywalls, private access controls, or platform restrictions.
+        """
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        paragraphStyle.lineSpacing = 3
+
+        let credits = NSAttributedString(
+            string: description,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 12),
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .paragraphStyle: paragraphStyle
+            ]
+        )
+
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [
+            .applicationName: "YTClipper",
+            .applicationVersion: "0.1.0",
+            .version: "Build 1",
+            .credits: credits
+        ]
+
+        if let icon = AppIconLoader.image() {
+            options[.applicationIcon] = icon
+        }
+
+        NSApplication.shared.orderFrontStandardAboutPanel(options: options)
+    }
+}
+
 enum DownloadMode: String, CaseIterable, Identifiable {
     case full
     case clip
@@ -506,7 +571,7 @@ final class DownloaderViewModel: ObservableObject {
         guard let url = URL(string: videoURL.trimmingCharacters(in: .whitespacesAndNewlines)),
               let host = url.host?.lowercased(),
               host.contains("youtube.com") || host.contains("youtu.be") else {
-            appendLog("Enter a valid YouTube URL.")
+            appendLog("Enter a valid YT URL.")
             status = "Invalid URL"
             progressLabel = "Invalid URL"
             return
