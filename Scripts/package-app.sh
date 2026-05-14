@@ -19,6 +19,9 @@ cp "$ROOT_DIR/.build/release/$APP_NAME" "$MACOS_DIR/$APP_NAME"
 
 if [[ -f "$SOURCE_ICON" ]]; then
   cp "$SOURCE_ICON" "$RESOURCES_DIR/YTClipperIcon.png"
+  if [[ -f "$ROOT_DIR/Resources/YTClipperIcon.svg" ]]; then
+    cp "$ROOT_DIR/Resources/YTClipperIcon.svg" "$RESOURCES_DIR/YTClipperIcon.svg"
+  fi
   rm -rf "$ICONSET_DIR"
   mkdir -p "$ICONSET_DIR"
   sips -z 16 16 "$SOURCE_ICON" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
