@@ -1,59 +1,45 @@
 # YTClipper
 
-A small macOS SwiftUI utility for downloading a full YT video, or clipping a time range from a YT video you own or have permission to archive.
+YTClipper is a simple Mac app for saving full YT videos or precise clip ranges from content you own or have permission to archive.
 
-The app shells out to:
+It is built for quick personal workflows: paste a link, choose full video or clip, pick a resolution, and save the result to your Mac.
 
-- `yt-dlp` for retrieving the public video stream
-- `ffmpeg` for merging streams and accurate clip cuts
+## What You Can Do
 
-It does not bypass DRM, paywalls, or private access controls.
+- Save a full YT video
+- Save only a selected clip range
+- Choose the maximum resolution, from 360p up to 4K
+- Watch download progress in the app
+- Stop an active download
+- Choose where files are saved
+- Switch between light and dark mode from `YTClipper > Settings...`
 
-## Features
+## Getting Started
 
-- Download the full video or a selected clip duration
-- Select a max video resolution, from 360p through 4K
-- Track active download progress with a progress bar
-- Stop an active download from inside the app
-- Toggle between light and dark mode from `YTClipper > Settings...`
-- Choose the output folder
-- Open a one-click Terminal installer when `yt-dlp` or `ffmpeg` is missing
+Open `YTClipper.app`, paste a YT video link, then choose either:
 
-## Install Helpers
+- `Full Video` to save the whole video
+- `Clip` to save only part of the video
 
-```sh
-brew install yt-dlp ffmpeg
-```
+If YTClipper needs extra helper tools, it will show an `Install` button. Click it and follow the Terminal window. When it finishes, return to YTClipper and click `Recheck Helpers`.
 
-`ffmpeg` is already present on this Mac at `/opt/homebrew/bin/ffmpeg`; `yt-dlp` still needs to be installed.
+## Saving a Clip
 
-## Run
+Switch the mode to `Clip`, then enter a start time.
 
-```sh
-cd "/Users/charlie/Documents/YTClipper"
-swift run YTClipper
-```
+You can choose either:
 
-## Package as a macOS App
-
-```sh
-cd "/Users/charlie/Documents/YTClipper"
-./Scripts/package-app.sh
-open .build/release/YTClipper.app
-```
-
-## Time Format
-
-Use `SS`, `MM:SS`, or `HH:MM:SS`.
+- `Duration`: save from the start time for a set length
+- `End Time`: save from the start time until a specific end time
 
 Examples:
 
 - Start: `01:15`
 - Duration: `00:30`
-- End time: `01:45`
-- Full video: enable `Download full video`
+- End Time: `01:45`
 
-Clip range modes:
+Time can be entered as `SS`, `MM:SS`, or `HH:MM:SS`.
 
-- `Duration`: downloads from `Start` for the entered duration
-- `End Time`: downloads from `Start` until the entered end time
+## Important Note
+
+Use YTClipper only with YT content you own or have permission to archive. The app does not bypass DRM, paywalls, private access controls, or platform restrictions.
