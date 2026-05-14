@@ -16,6 +16,12 @@ BACKGROUND_NAME="background.png"
 cd "$ROOT_DIR"
 "$ROOT_DIR/Scripts/package-app.sh"
 
+while IFS= read -r existing_mount; do
+  if [[ -n "$existing_mount" ]]; then
+    hdiutil detach "$existing_mount" >/dev/null || true
+  fi
+done < <(hdiutil info | awk -v volume="/Volumes/$VOLUME_NAME" '$0 ~ volume {print $1}')
+
 rm -rf "$DMG_WORK_DIR"
 mkdir -p "$DMG_STAGING_DIR/.background"
 
@@ -44,7 +50,8 @@ SetFile -a V "$MOUNT_POINT/.background"
 
 osascript <<APPLESCRIPT
 tell application "Finder"
-  tell disk "$VOLUME_NAME"
+  set dmgFolder to POSIX file "$MOUNT_POINT" as alias
+  tell folder dmgFolder
     open
     set current view of container window to icon view
     set toolbar visible of container window to false
@@ -69,6 +76,13 @@ end tell
 APPLESCRIPT
 
 sync
+
+if [[ ! -f "$MOUNT_POINT/.DS_Store" ]]; then
+  hdiutil detach "$DEVICE" >/dev/null || true
+  echo "DMG styling failed: Finder did not write .DS_Store." >&2
+  exit 1
+fi
+
 hdiutil detach "$DEVICE" >/dev/null
 hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -o "$FINAL_DMG" >/dev/null
 
