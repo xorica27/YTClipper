@@ -1,5 +1,7 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
+import YTClipperCore
 
 @main
 struct YTClipperApp: App {
@@ -8,7 +10,7 @@ struct YTClipperApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 820, minHeight: 730)
+                .frame(minWidth: 820, minHeight: 760)
                 .preferredColorScheme(prefersDarkMode ? .dark : .light)
         }
         .windowResizability(.contentMinSize)
@@ -91,9 +93,49 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 14) {
                 sectionHeader("Source", systemImage: "link")
 
-                TextField("Paste a YT video URL", text: $model.videoURL)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .rounded))
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $model.urlListText)
+                        .font(.system(.body, design: .rounded))
+                        .scrollContentBackground(.hidden)
+                        .padding(8)
+                        .disabled(model.isRunning)
+
+                    if model.urlListText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Paste one YT video URL per line")
+                            .font(.system(.body, design: .rounded))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 16)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .frame(minHeight: 92)
+                .background(Color(nsColor: .textBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.6))
+                )
+
+                HStack(spacing: 10) {
+                    Label(model.urlCountLabel, systemImage: "list.bullet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if let invalidURLLabel = model.invalidURLLabel {
+                        Label(invalidURLLabel, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        model.importURLListFromTextFile()
+                    } label: {
+                        Label("Import", systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(model.isRunning)
+                }
 
                 HStack(spacing: 14) {
                     fieldGroup("Mode") {
@@ -417,7 +459,7 @@ struct AboutView: View {
                 Text("YTClipper")
                     .font(.system(size: 30, weight: .semibold, design: .rounded))
 
-                Text("Version 0.1.0")
+                Text("Version 0.2.0")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -541,20 +583,6 @@ enum AboutPanelPresenter {
     }
 }
 
-enum DownloadMode: String, CaseIterable, Identifiable {
-    case full
-    case clip
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .full: return "Full Video"
-        case .clip: return "Clip"
-        }
-    }
-}
-
 struct SettingsView: View {
     @AppStorage("prefersDarkMode") private var prefersDarkMode = false
 
@@ -573,7 +601,7 @@ struct SettingsView: View {
 
 @MainActor
 final class DownloaderViewModel: ObservableObject {
-    @Published var videoURL = ""
+    @Published var urlListText = ""
     @Published var downloadFullVideo = false
     @Published var startTime = "00:00"
     @Published var duration = "00:30"
@@ -587,7 +615,27 @@ final class DownloaderViewModel: ObservableObject {
     @Published var progressLabel = "Idle"
     @Published var ytDlpPath: String?
     @Published var ffmpegPath: String?
-    private var activeProcess: ProcessController?
+    @Published var invalidURLs: [String] = []
+    @Published var totalItems = 0
+    @Published var activeItemIndex: Int?
+    private var activeDownloader: BatchDownloader?
+
+    var urlCountLabel: String {
+        let parsed = URLListParser.parse(urlListText)
+        let count = parsed.urls.count
+
+        switch count {
+        case 0: return "No URLs"
+        case 1: return "1 URL"
+        default: return "\(count) URLs"
+        }
+    }
+
+    var invalidURLLabel: String? {
+        let count = URLListParser.parse(urlListText).invalidEntries.count
+        guard count > 0 else { return nil }
+        return count == 1 ? "1 invalid URL" : "\(count) invalid URLs"
+    }
 
     var ytDlpStatus: String {
         guard let ytDlpPath else {
@@ -619,8 +667,8 @@ final class DownloaderViewModel: ObservableObject {
     }
 
     func refreshToolStatus() async {
-        ytDlpPath = findExecutable(named: "yt-dlp")
-        ffmpegPath = findExecutable(named: "ffmpeg")
+        ytDlpPath = HelperLocator.findExecutable(named: "yt-dlp")
+        ffmpegPath = HelperLocator.findExecutable(named: "ffmpeg")
     }
 
     func chooseOutputDirectory() {
@@ -653,12 +701,35 @@ final class DownloaderViewModel: ObservableObject {
         }
     }
 
+    func importURLListFromTextFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.plainText, .text]
+
+        if panel.runModal() == .OK, let selectedURL = panel.url {
+            do {
+                urlListText = try String(contentsOf: selectedURL, encoding: .utf8)
+                let parsed = URLListParser.parse(urlListText)
+                invalidURLs = parsed.invalidEntries
+                status = "Imported \(parsed.urls.count) URL\(parsed.urls.count == 1 ? "" : "s")"
+            } catch {
+                status = "Import failed"
+                appendLog("Could not read URL list: \(error.localizedDescription)\n")
+            }
+        }
+    }
+
     func download() async {
         await refreshToolStatus()
         log = ""
         status = "Validating"
         progressFraction = nil
         progressLabel = "Preparing"
+        invalidURLs = []
+        totalItems = 0
+        activeItemIndex = nil
 
         guard let ytDlpPath else {
             appendLog("Missing yt-dlp.\nInstall it with:\n  brew install yt-dlp")
@@ -674,75 +745,96 @@ final class DownloaderViewModel: ObservableObject {
             return
         }
 
-        guard let url = URL(string: videoURL.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let host = url.host?.lowercased(),
-              host.contains("youtube.com") || host.contains("youtu.be") else {
-            appendLog("Enter a valid YT URL.")
-            status = "Invalid URL"
-            progressLabel = "Invalid URL"
+        let parsedURLs = URLListParser.parse(urlListText)
+        invalidURLs = parsedURLs.invalidEntries
+
+        guard !parsedURLs.urls.isEmpty else {
+            appendLog("Enter at least one valid YT URL.\n")
+            status = "No URLs"
+            progressLabel = "No URLs"
             return
         }
 
-        var args = [
-            "--newline",
-            "--no-playlist",
-            "--ffmpeg-location", ffmpegPath,
-            "-f", selectedResolution.formatSelector,
-            "--merge-output-format", "mp4",
-            "-P", outputDirectory.path,
-            "-o", "%(title).80s-%(id)s.%(ext)s"
-        ]
+        guard parsedURLs.invalidEntries.isEmpty else {
+            appendLog("Fix invalid URL entries before downloading:\n")
+            parsedURLs.invalidEntries.forEach { appendLog("  \($0)\n") }
+            status = "Invalid URLs"
+            progressLabel = "Invalid URLs"
+            return
+        }
+
+        let mode: DownloadMode = downloadFullVideo ? .full : .clip
+        let clipRange: ClipRange?
 
         if !downloadFullVideo {
-            guard let startSeconds = TimecodeParser.seconds(from: startTime),
-                  let endSeconds = clipRangeMode.endSeconds(startSeconds: startSeconds, trailingValue: duration),
-                  endSeconds > startSeconds else {
+            do {
+                switch clipRangeMode {
+                case .duration:
+                    clipRange = try ClipRange(start: startTime, duration: duration)
+                case .endTime:
+                    clipRange = try ClipRange(start: startTime, endTime: duration)
+                }
+            } catch {
                 appendLog("Clip range must be valid. Use SS, MM:SS, or HH:MM:SS, and make sure the end is after the start.\n")
                 status = "Invalid clip time"
                 progressLabel = "Invalid clip time"
                 return
             }
-
-            let section = "*\(TimecodeParser.string(from: startSeconds))-\(TimecodeParser.string(from: endSeconds))"
-            args += [
-                "--download-sections", section,
-                "--force-keyframes-at-cuts"
-            ]
+        } else {
+            clipRange = nil
         }
 
-        args.append(videoURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        let requests: [DownloadRequest]
+        do {
+            requests = try parsedURLs.urls.map { url in
+                try DownloadRequest(
+                    url: url,
+                    mode: mode,
+                    resolution: selectedResolution,
+                    outputDirectory: outputDirectory,
+                    clipRange: clipRange
+                )
+            }
+        } catch {
+            appendLog("Could not prepare downloads: \(error.localizedDescription)\n")
+            status = "Invalid request"
+            progressLabel = "Invalid request"
+            return
+        }
+
+        let batch = DownloadBatch(requests: requests, continueOnFailure: true)
+        let downloader = BatchDownloader(ytDlpPath: ytDlpPath, ffmpegPath: ffmpegPath)
+        activeDownloader = downloader
 
         isRunning = true
-        status = downloadFullVideo ? "Downloading full video" : "Downloading clip"
+        totalItems = requests.count
+        status = requests.count == 1 ? (downloadFullVideo ? "Downloading full video" : "Downloading clip") : "Downloading \(requests.count) items"
         progressLabel = "Starting"
-        appendLog("$ \(ytDlpPath) \(args.joined(separator: " "))\n")
+        appendLog("Prepared \(requests.count) download\(requests.count == 1 ? "" : "s").\n")
 
-        let processController = ProcessController()
-        activeProcess = processController
-
-        let result = await ProcessRunner.run(executable: ytDlpPath, arguments: args, controller: processController) { [weak self] chunk in
+        let summary = await downloader.run(batch: batch) { [weak self] event in
             Task { @MainActor in
-                self?.handleProcessOutput(chunk)
+                self?.handleDownloadEvent(event)
             }
         }
 
         isRunning = false
-        activeProcess = nil
+        activeDownloader = nil
+        activeItemIndex = nil
 
-        switch result {
-        case .success:
+        if summary.cancelled > 0 {
+            status = "Stopped"
+            progressLabel = "Stopped"
+            appendLog("\nStopped. \(summary.succeeded) succeeded, \(summary.failed) failed, \(summary.cancelled) cancelled.\n")
+        } else if summary.failed > 0 {
+            status = "Completed with failures"
+            progressLabel = "\(summary.succeeded)/\(summary.results.count) succeeded"
+            appendLog("\nCompleted with failures. \(summary.succeeded) succeeded, \(summary.failed) failed.\n")
+        } else {
             status = "Done"
             progressFraction = 1
             progressLabel = "100%"
             appendLog("\nDone. Saved to: \(outputDirectory.path)\n")
-        case .cancelled:
-            status = "Stopped"
-            progressLabel = "Stopped"
-            appendLog("\nStopped by user.\n")
-        case .failure(let message):
-            status = "Failed"
-            progressLabel = "Failed"
-            appendLog("\nFailed:\n\(message)\n")
         }
     }
 
@@ -750,8 +842,44 @@ final class DownloaderViewModel: ObservableObject {
         guard isRunning else { return }
         status = "Stopping"
         progressLabel = "Stopping"
-        activeProcess?.cancel()
+        activeDownloader?.cancel()
         appendLog("\nStopping download...\n")
+    }
+
+    private func handleDownloadEvent(_ event: DownloadEvent) {
+        switch event.type {
+        case "batch_started":
+            totalItems = event.total ?? 0
+        case "item_started":
+            activeItemIndex = event.index
+            progressFraction = nil
+            progressLabel = itemProgressPrefix(for: event.index) ?? "Starting"
+            if let url = event.url {
+                appendLog("\n[\((event.index ?? 0) + 1)/\(max(totalItems, 1))] \(url)\n")
+            }
+        case "progress":
+            progressFraction = event.fraction
+            progressLabel = [itemProgressPrefix(for: event.index), event.label]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+        case "log":
+            if let message = event.message {
+                handleProcessOutput(message)
+            }
+        case "item_completed":
+            appendLog("\nItem \((event.index ?? 0) + 1) completed.\n")
+        case "item_failed":
+            appendLog("\nItem \((event.index ?? 0) + 1) failed: \(event.message ?? "Unknown error")\n")
+        case "item_cancelled":
+            appendLog("\nItem \((event.index ?? 0) + 1) cancelled.\n")
+        default:
+            break
+        }
+    }
+
+    private func itemProgressPrefix(for index: Int?) -> String? {
+        guard let index, totalItems > 1 else { return nil }
+        return "Item \(index + 1)/\(totalItems)"
     }
 
     private func handleProcessOutput(_ text: String) {
@@ -774,40 +902,6 @@ final class DownloaderViewModel: ObservableObject {
 
     private func appendLog(_ text: String) {
         log += text.replacingOccurrences(of: "\r", with: "\n")
-    }
-
-    private func findExecutable(named name: String) -> String? {
-        let candidates = [
-            "/opt/homebrew/bin/\(name)",
-            "/usr/local/bin/\(name)",
-            "/usr/bin/\(name)",
-            "/bin/\(name)"
-        ]
-
-        if let match = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
-            return match
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["which", name]
-
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            let path = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return path?.isEmpty == false ? path : nil
-        } catch {
-            return nil
-        }
     }
 }
 
@@ -850,264 +944,5 @@ enum HelperInstallScriptWriter {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
         return scriptURL
-    }
-}
-
-enum ClipRangeMode: String, CaseIterable, Identifiable {
-    case duration
-    case endTime
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .duration: return "Duration"
-        case .endTime: return "End Time"
-        }
-    }
-
-    var trailingFieldLabel: String {
-        switch self {
-        case .duration: return "Clip Duration"
-        case .endTime: return "Clip Timestamp"
-        }
-    }
-
-    var trailingFieldPlaceholder: String {
-        switch self {
-        case .duration: return "00:30"
-        case .endTime: return "01:45"
-        }
-    }
-
-    func endSeconds(startSeconds: Int, trailingValue: String) -> Int? {
-        guard let value = TimecodeParser.seconds(from: trailingValue) else { return nil }
-
-        switch self {
-        case .duration:
-            return startSeconds + value
-        case .endTime:
-            return value
-        }
-    }
-}
-
-struct DownloadProgress {
-    let fraction: Double
-    let label: String
-}
-
-enum DownloadProgressParser {
-    static func parse(_ text: String) -> DownloadProgress? {
-        let pattern = #"\[download\]\s+([0-9]+(?:\.[0-9]+)?)%"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = regex.matches(in: text, range: range).last,
-              let percentRange = Range(match.range(at: 1), in: text),
-              let percent = Double(text[percentRange]) else {
-            return nil
-        }
-
-        let clampedPercent = min(max(percent, 0), 100)
-        return DownloadProgress(
-            fraction: clampedPercent / 100,
-            label: String(format: "%.1f%%", clampedPercent)
-        )
-    }
-}
-
-enum VideoResolution: String, CaseIterable, Identifiable {
-    case best
-    case p2160
-    case p1440
-    case p1080
-    case p720
-    case p480
-    case p360
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .best: return "Best available"
-        case .p2160: return "Up to 2160p / 4K"
-        case .p1440: return "Up to 1440p / 2K"
-        case .p1080: return "Up to 1080p"
-        case .p720: return "Up to 720p"
-        case .p480: return "Up to 480p"
-        case .p360: return "Up to 360p"
-        }
-    }
-
-    var formatSelector: String {
-        switch self {
-        case .best:
-            return "bv*+ba/best"
-        case .p2160:
-            return "bv*[height<=2160]+ba/b[height<=2160]/best[height<=2160]"
-        case .p1440:
-            return "bv*[height<=1440]+ba/b[height<=1440]/best[height<=1440]"
-        case .p1080:
-            return "bv*[height<=1080]+ba/b[height<=1080]/best[height<=1080]"
-        case .p720:
-            return "bv*[height<=720]+ba/b[height<=720]/best[height<=720]"
-        case .p480:
-            return "bv*[height<=480]+ba/b[height<=480]/best[height<=480]"
-        case .p360:
-            return "bv*[height<=360]+ba/b[height<=360]/best[height<=360]"
-        }
-    }
-}
-
-enum TimecodeParser {
-    static func seconds(from text: String) -> Int? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if let directSeconds = Int(trimmed), directSeconds >= 0 {
-            return directSeconds
-        }
-
-        let parts = trimmed.split(separator: ":").map(String.init)
-        guard (2...3).contains(parts.count),
-              parts.allSatisfy({ Int($0) != nil }) else {
-            return nil
-        }
-
-        let values = parts.compactMap(Int.init)
-        guard values.count == parts.count, values.allSatisfy({ $0 >= 0 }) else {
-            return nil
-        }
-
-        if values.count == 2 {
-            let minutes = values[0]
-            let seconds = values[1]
-            guard seconds < 60 else { return nil }
-            return minutes * 60 + seconds
-        }
-
-        let hours = values[0]
-        let minutes = values[1]
-        let seconds = values[2]
-        guard minutes < 60, seconds < 60 else { return nil }
-        return hours * 3600 + minutes * 60 + seconds
-    }
-
-    static func string(from seconds: Int) -> String {
-        let hours = seconds / 3600
-        let minutes = (seconds % 3600) / 60
-        let remainingSeconds = seconds % 60
-        return String(format: "%02d:%02d:%02d", hours, minutes, remainingSeconds)
-    }
-}
-
-enum ProcessRunResult {
-    case success
-    case cancelled
-    case failure(String)
-}
-
-final class ProcessController: @unchecked Sendable {
-    private let lock = NSLock()
-    private var process: Process?
-    private var cancelled = false
-
-    func attach(_ process: Process) {
-        lock.withLock {
-            self.process = process
-            if cancelled {
-                process.terminate()
-            }
-        }
-    }
-
-    func cancel() {
-        lock.withLock {
-            cancelled = true
-            process?.terminate()
-        }
-    }
-
-    var isCancelled: Bool {
-        lock.withLock { cancelled }
-    }
-}
-
-final class LockedTextBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage = ""
-
-    func append(_ text: String) {
-        lock.withLock {
-            storage += text
-        }
-    }
-
-    var text: String {
-        lock.withLock { storage }
-    }
-}
-
-extension NSLock {
-    func withLock<T>(_ work: () -> T) -> T {
-        lock()
-        defer { unlock() }
-        return work()
-    }
-}
-
-enum ProcessRunner {
-    static func run(
-        executable: String,
-        arguments: [String],
-        controller: ProcessController,
-        onOutput: @escaping (String) -> Void
-    ) async -> ProcessRunResult {
-        await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = arguments
-            controller.attach(process)
-
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-
-            let errorOutput = LockedTextBuffer()
-
-            outputPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-                onOutput(text)
-            }
-
-            errorPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-                errorOutput.append(text)
-                onOutput(text)
-            }
-
-            process.terminationHandler = { finishedProcess in
-                outputPipe.fileHandleForReading.readabilityHandler = nil
-                errorPipe.fileHandleForReading.readabilityHandler = nil
-
-                if controller.isCancelled {
-                    continuation.resume(returning: .cancelled)
-                } else if finishedProcess.terminationStatus == 0 {
-                    continuation.resume(returning: .success)
-                } else {
-                    let message = errorOutput.text
-                    continuation.resume(returning: .failure(message.isEmpty ? "yt-dlp exited with status \(finishedProcess.terminationStatus)." : message))
-                }
-            }
-
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(returning: .failure(error.localizedDescription))
-            }
-        }
     }
 }

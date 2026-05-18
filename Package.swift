@@ -8,11 +8,31 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "YTClipper", targets: ["YTClipper"])
+        .library(name: "YTClipperCore", targets: ["YTClipperCore"]),
+        .executable(name: "YTClipper", targets: ["YTClipper"]),
+        .executable(name: "ytclipper-cli", targets: ["YTClipperCLI"])
     ],
     targets: [
+        .target(
+            name: "YTClipperCore"
+        ),
         .executableTarget(
-            name: "YTClipper"
+            name: "YTClipper",
+            dependencies: ["YTClipperCore"]
+        ),
+        .executableTarget(
+            name: "YTClipperCLI",
+            dependencies: ["YTClipperCore"]
+        ),
+        .testTarget(
+            name: "YTClipperCoreTests",
+            dependencies: ["YTClipperCore"],
+            swiftSettings: [
+                .unsafeFlags(["-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"])
+            ],
+            linkerSettings: [
+                .unsafeFlags(["-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"])
+            ]
         )
     ]
 )

@@ -9,3 +9,5 @@ xcuserdata/
 
 # Local packaged app output
 *.app/
+dist/
+dmgforge-work/

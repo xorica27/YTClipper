@@ -1,0 +1,48 @@
+{
+  "appName" : "YTClipper",
+  "appPath" : ".build\/release\/YTClipper.app",
+  "background" : {
+    "description" : "Drag to Applications. If macOS blocks first open, use the helper below.",
+    "footer" : "",
+    "mode" : "generated",
+    "title" : "Install YTClipper"
+  },
+  "firstLaunchGuide" : {
+    "enabled" : true,
+    "helpFileIcon" : {
+      "x" : 500,
+      "y" : 420
+    },
+    "helpFileName" : "First Launch Help.txt",
+    "helpText" : "",
+    "securitySettingsIcon" : {
+      "x" : 190,
+      "y" : 420
+    },
+    "securitySettingsShortcutName" : "Open Security Settings.inetloc",
+    "securitySettingsURL" : "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension"
+  },
+  "guideArrow" : {
+    "color" : "#444444",
+    "thickness" : 7,
+    "visible" : true
+  },
+  "layout" : {
+    "appIcon" : {
+      "x" : 190,
+      "y" : 210
+    },
+    "applicationsIcon" : {
+      "x" : 500,
+      "y" : 210
+    }
+  },
+  "outputPath" : "dist\/YTClipper-0.2.0.dmg",
+  "schemaVersion" : 1,
+  "version" : "0.2.0",
+  "volumeName" : "YTClipper 0.2.0",
+  "window" : {
+    "height" : 560,
+    "width" : 680
+  }
+}

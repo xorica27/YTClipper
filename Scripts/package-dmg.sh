@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="YTClipper"
-APP_VERSION="0.1.0"
+APP_VERSION="0.2.0"
 VOLUME_NAME="$APP_NAME $APP_VERSION"
 BUILD_DIR="$ROOT_DIR/.build"
 APP_DIR="$BUILD_DIR/release/$APP_NAME.app"
