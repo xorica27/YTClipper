@@ -1,7 +1,7 @@
 # YTClipper
 
 <p align="center">
-  <img src="Resources/YTClipperIcon.png" alt="YTClipper app icon" width="128">
+  <img src="docs/assets/ytclipper-app-preview.png" alt="YTClipper app preview" width="960">
 </p>
 
 YTClipper is a simple Mac app for saving full YT videos or precise clip ranges from content you own or have permission to archive.
